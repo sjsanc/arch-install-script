@@ -1,109 +1,183 @@
-preload() {
-    echo "Loading keyboard..."
-    # loadkeys uk
+#!/bin/bash
+# encoding: utf-8
 
-    echo "Checking network..."
-    if [ "ping -c1 www.google.com" ] ; then
-        echo "All good! Time to install!"
-    else
-        echo "Network unavailable :("
-        return
-    fi
-}
+##################################################
+#		    Variables 			 #
+##################################################
+# Computer Name
+HOSTN=entity
 
-setup_drives() {
-    echo "Formatting drives..."
-    # sed -e 
-    # fdisk /dev/sda
-    # g
-    # 1
-    # 2048
-    # +512M
-    # t
-    # 1
-    # n
-    # 2
+# Keyboard Layout
+KEYBOARD_LAYOUT=uk
 
-    
-    # w
-    sfdisk /dev/sda/ >> echo "label: gpt
-    label-id: 7C60523D-34C9-B149-ADDE-879B6FA897FB
-    device: /dev/sda
-    unit: sectors
-    first-lba: 2048
-    last-lba: 976773134
-    sector-size: 512
+# Your language, used for localization purposes
+LANGUAGE=en_GB
 
-    /dev/sda1 : start=        4096, size=      614400, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=30EC9CAE-A763-5B40-AC64-133EA26D9BC4
-    /dev/sda2 : start=      618496, size=   957694630, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=015325DD-FCC0-1A4F-875C-1815D5CC0591
-    /dev/sda3 : start=   958313126, size=    18454939, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F, uuid=9F78F90B-3488-774D-8D72-2FCE69CDB967"
-    
+# Geography Localization. Verify the directory /usr/share/zoneinfo/<Zone>/<SubZone>
+LOCALE=Europe/London
 
-    mkfs.fat -F32 /dev/sda1
-    mkfs.ext4 /dev/sda2
-    mkswap /dev/sda3
-    swapon /dev/sda3
-    mount /dev/sda2 /mnt
-    mkdir /mnt/efi
-    mount /dev/sda1 /mnt/efi
-}
+# Root password for the brand new installed system
+read -p "Enter root password: " ROOT_PASSWD
 
-setup_mirrors() {
-    echo "Setting up mirrorlist..."
-    pacstrap /mnt base linux linux-firmware base-devel nano reflector
-    cp /mnt/etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist.bak
-    reflector --verbose --latest 5 --sort rate --save /etc/pacman.d/mirrorlist
-}
+########## Hard Disk Partitioning Variable
+# ANTENTION, this script erases ALL YOU HD DATA (specified bt $HD)
+HD=/dev/sda
+# Boot Partition Size: /boot
+BOOT_SIZE=200
+# Root Partition Size: /
+ROOT_SIZE=10000
+# Swap partition size: /swap
+SWAP_SIZE=2000
+# The /home partition will occupy the remain free space
 
-setup_filesystem() {
-    echo "Generating filesystem..."
-    genfstab -U /mnt >> /mnt/etc/fstab
-    arch-chroot /mnt
-}
+# Partitions file system
+BOOT_FS=ext4
+HOME_FS=ext4
+ROOT_FS=ext4
 
-setup_details() {
-    echo "Configuring locales..."
-    ln -sf /usr/share/zoneinfo/Europe/London /etc/localtime
-    hwclock --systohc
-    echo en_GB.UTF-8 UTF-8 >> /etc/locale/gen
-    locale-gen
-    echo LANG=en_GB.UTF-8 >> /etc/locale.conf
-    echo KEYMAP=uk >> /etc/vconsole.conf
-    
-    echo "Enter your hostname: "
-    read HOSTNAME
-    echo $HOSTNAME >> /etc/hostname
+# Extra packages (not obligatory)
+EXTRA_PKGS='vim'
 
-    echo 
-    "127.0.0.1   localhost
-    ::1          localhost
-    127.0.1.1    $HOSTNAME.localdomain    $HOSTNAME"
-    >> /etc/hosts
 
-    echo "Enter your username: "
-    read USERNAME
-    useradd -m $USERNAME
+######## Auxiliary variables. THIS SHOULD NOT BE ALTERED
+BOOT_START=1
+BOOT_END=$(($BOOT_START+$BOOT_SIZE))
 
-    echo "Enter your root password: "
-    passwd 
-    passwd USERNAME
-    usermod -aG wheel,audio,video,optical,storage,rfkill USERNAME
+SWAP_START=$BOOT_END
+SWAP_END=$(($SWAP_START+$SWAP_SIZE))
 
-    pacman -S sudo
-    echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+ROOT_START=$SWAP_END
+ROOT_END=$(($ROOT_START+$ROOT_SIZE))
 
-    pacman -S grub efibootmgr
-    grub-install --target=x86_64-efi --efi-directory=/efi/ --bootloader-id=Arch
-    grub-mkconfig -o /boot/grub/grub.cfg
+HOME_START=$ROOT_END
 
-    pacman -S networkmanager
-    systemctl enable NetworkManager
-    exit
-    shutdown now
-}
+##################################################
+#		    Script 			 #
+##################################################
+# Loads the keyboard layout
+loadkeys $KEYBOARD_LAYOUT
 
-preload
-setup_drives
-setup_mirrors
-setup_filesystem
-setup_details
+#### Partitioning
+echo "HD Initialization"
+# Set the partition table to MS-DOS type 
+parted -s $HD mklabel msdos &> /dev/null
+
+# Remove any older partitions
+parted -s $HD rm 1 &> /dev/null
+parted -s $HD rm 2 &> /dev/null
+parted -s $HD rm 3 &> /dev/null
+parted -s $HD rm 4 &> /dev/null
+
+# Create boot partition
+echo "Create boot partition"
+parted -s $HD mkpart primary $BOOT_FS $BOOT_START $BOOT_END 1>/dev/null
+parted -s $HD set 1 boot on 1>/dev/null
+
+# Create swap partition
+echo "Create swap partition"
+parted -s $HD mkpart primary linux-swap $SWAP_START $SWAP_END 1>/dev/null
+
+# Create root partition
+echo "Create root partition"
+parted -s $HD mkpart primary $ROOT_FS $ROOT_START $ROOT_END 1>/dev/null
+
+# Create home partition
+echo "Create home partition"
+parted -s -- $HD mkpart primary $HOME_FS $HOME_START -0 1>/dev/null
+
+# Formats the root, home and boot partition to the specified file system
+echo "Formating boot partition"
+mkfs.$BOOT_FS /dev/sda1 -L Boot 1>/dev/null
+echo "Formating root partition"
+mkfs.$ROOT_FS /dev/sda3 -L Root 1>/dev/null
+echo "Formating home partition"
+mkfs.$HOME_FS /dev/sda4 -L Home 1>/dev/null
+# Initializes the swap
+echo "Formating swap partition"
+mkswap /dev/sda2
+swapon /dev/sda2
+
+
+echo "Mounting partitions"
+# mounts the root partition
+mount /dev/sda3 /mnt
+# mounts the boot partition
+mkdir /mnt/boot
+mount /dev/sda1 /mnt/boot
+# mounts the home partition
+mkdir /mnt/home
+mount /dev/sda4 /mnt/home
+
+
+#### Installation
+echo "Setting up pacman"
+cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bkp
+sed "s/^Ser/#Ser/" /etc/pacman.d/mirrorlist > /tmp/mirrors
+sed '/Brazil/{n;s/^#//}' /tmp/mirrors > /etc/pacman.d/mirrorlist
+
+if [ "$(uname -m)" = "x86_64" ]
+then
+	cp /etc/pacman.conf /etc/pacman.conf.bkp
+	# Adds multilib repository
+	sed '/^#\[multilib\]/{s/^#//;n;s/^#//;n;s/^#//}' /etc/pacman.conf > /tmp/pacman
+	mv /tmp/pacman /etc/pacman.conf
+
+fi
+
+echo "Running pactrap base base-devel"
+pacstrap /mnt base base-devel
+echo "Running pactrap grub-bios $EXTRA_PKGS"
+pacstrap /mnt grub-bios `echo $EXTRA_PKGS`
+echo "Running genfstab"
+genfstab -p /mnt >> /mnt/etc/fstab
+
+
+#### Enters in the new system (chroot)
+arch-chroot /mnt << EOF
+# Sets hostname
+echo $HOSTN > /etc/hostname
+cp /etc/hosts /etc/hosts.bkp
+sed 's/localhost$/localhost '$HOSTN'/' /etc/hosts > /tmp/hosts
+mv /tmp/hosts /etc/hosts
+
+# Configures the keyboard layout
+echo 'KEYMAP='$KEYBOARD_LAYOUT > /etc/vconsole.conf
+echo 'FONT=lat0-16' >> /etc/vconsole.conf
+echo 'FONT_MAP=' >> /etc/vconsole.conf
+
+# Setup locale.gen
+cp /etc/locale.gen /etc/locale.gen.bkp
+sed 's/^#'$LANGUAGE'/'$LANGUAGE/ /etc/locale.gen > /tmp/locale
+mv /tmp/locale /etc/locale.gen
+locale-gen
+
+# Setup locale.conf
+export LANG=$LANGUAGE'.utf-8'
+echo 'LANG='$LANGUAGE'.utf-8' > /etc/locale.conf
+echo 'LC_COLLATE=C' >> /etc/locale.conf
+echo 'LC_TIME='$LANGUAGE'.utf-8' >> /etc/locale.conf
+
+# Setup clock (date and time)
+ln -s /usr/share/zoneinfo/$LOCALE /etc/localtime
+echo $LOCALE > /etc/timezone
+hwclock --systohc --utc
+
+# Setup the network (DHCP via eth0)
+cp /etc/rc.conf /etc/rc.conf.bkp
+sed 's/^# interface=/interface=eth0/' /etc/rc.conf > /tmp/rc.conf
+mv /tmp/rc.conf /etc/rc.conf
+
+# Setup initial ramdisk environment
+mkinitcpio -p linux
+
+# Installs and generates GRUB's settings
+grub-install /dev/sda
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Changes the root password
+echo -e $ROOT_PASSWD"\n"$ROOT_PASSWD | passwd
+EOF
+
+echo "Umounting partitions"
+umount /mnt/{boot,home,}
+reboot
