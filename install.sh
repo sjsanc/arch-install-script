@@ -13,20 +13,36 @@ preload() {
 
 setup_drives() {
     echo "Formatting drives..."
-    fdisk /dev/sda
-    g
-    1
-    2048
-    +512M
-    t
-    1
-    n
-    2
+    # sed -e 
+    # fdisk /dev/sda
+    # g
+    # 1
+    # 2048
+    # +512M
+    # t
+    # 1
+    # n
+    # 2
 
     
-    w
+    # w
+    sfdisk /dev/sda/ >> echo "label: gpt
+    label-id: 7C60523D-34C9-B149-ADDE-879B6FA897FB
+    device: /dev/sda
+    unit: sectors
+    first-lba: 2048
+    last-lba: 976773134
+    sector-size: 512
+
+    /dev/sda1 : start=        4096, size=      614400, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=30EC9CAE-A763-5B40-AC64-133EA26D9BC4
+    /dev/sda2 : start=      618496, size=   957694630, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=015325DD-FCC0-1A4F-875C-1815D5CC0591
+    /dev/sda3 : start=   958313126, size=    18454939, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F, uuid=9F78F90B-3488-774D-8D72-2FCE69CDB967"
+    
+
     mkfs.fat -F32 /dev/sda1
     mkfs.ext4 /dev/sda2
+    mkswap /dev/sda3
+    swapon /dev/sda3
     mount /dev/sda2 /mnt
     mkdir /mnt/efi
     mount /dev/sda1 /mnt/efi
